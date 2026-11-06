@@ -1,0 +1,1 @@
+{"description":"Sakura-sensei Telegram bot — Japanese N5/N4 daily lessons, quizzes and mock tests","engines":{"node":">=18"},"license":"UNLICENSED","main":"bot.js","name":"sakura-sensei-telegram-bot","private":true,"scripts":{"start":"node bot.js","test":"node bot.js --self-test"},"version":"1.1.0"}
