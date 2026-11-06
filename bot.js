@@ -1,4 +1,4 @@
-// Sakura-sensei Telegram bot — Japanese N5/N4 learning bot (v1.2: Pro unlock in bot only)
+// Sakura-sensei Telegram bot — Japanese N5/N4 learning bot (v1.3: Pro unlock + Japanese voice via Google Translate TTS)
 // No dependencies: Node 18+ only (uses global fetch).
 // Usage:  BOT_TOKEN=<token from @BotFather> node bot.js
 // The token is NEVER stored in this file — pass it as an environment variable.
@@ -15,7 +15,7 @@ const DATA_FILE = path.join(__dirname, "bot-data.json");
 const PROGRESS_FILE = path.join(__dirname, "progress.json");
 const DATA = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 
-if (!TOKEN && !process.argv.includes("--self-test")) {
+if (!TOKEN && !process.argv.includes("--self-test") && !process.argv.includes("--test-tts")) {
   console.error("BOT_TOKEN မရှိသေးပါ။ BotFather (@BotFather) မှာ /newbot လုပ်ပြီး ရတဲ့ token ကို BOT_TOKEN=... node bot.js ဆိုပြီး run ပါ။");
   process.exit(1);
 }
@@ -119,12 +119,70 @@ async function send(chatId, text, extra = {}) {
     await api("sendMessage", { chat_id: chatId, text: chunks[i], ...(i === 0 ? extra : {}) });
   }
 }
+// ---- Japanese voice (Google Translate TTS, free unofficial endpoint) ----
+// No API key needed. One request handles ~180 chars, so long text is split
+// on sentence boundaries. Returns MP3 bytes; sent with sendAudio (Telegram
+// sendVoice needs OGG/Opus, sendAudio accepts MP3). If Google blocks the
+// endpoint, voice fails gracefully with a text message — lessons still work.
+function ttsChunks(text) {
+  const clean = (text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const chunks = [];
+  let rest = clean;
+  while (rest.length > 180) {
+    let cut = rest.lastIndexOf("。", 180);
+    if (cut < 40) cut = rest.lastIndexOf("、", 180);
+    if (cut < 40) cut = rest.lastIndexOf(" ", 180);
+    if (cut < 40) cut = 180;
+    else cut = cut + 1;
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks.slice(0, 3); // max 3 voice clips per lesson (keeps it fast)
+}
+async function ttsMp3(text) {
+  const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 500) throw new Error("TTS returned too little audio");
+  return buf;
+}
+async function sendAudio(chatId, buf, caption) {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("audio", new Blob([buf], { type: "audio/mpeg" }), "voice.mp3");
+  if (caption) form.append("caption", caption);
+  const res = await fetch(`${API}/sendAudio`, { method: "POST", body: form });
+  const json = await res.json();
+  if (!json.ok) throw new Error(`sendAudio: ${json.description || res.status}`);
+  return json.result;
+}
+async function voiceForDay(chatId, u) {
+  const list = u.level === "n5" ? DATA.n5 : DATA.n4;
+  const d = list[u.day - 1];
+  if (!d || !d.introJp) return send(chatId, "ဒီနေ့မှာ အသံ မရှိပါ။", menuKeyboard());
+  if (!canAccess(u, u.level, u.day)) return send(chatId, `🔒 ${u.level.toUpperCase()} Day ${u.day} က Pro ဖြစ်ပါတယ်။\n\n${proStatusText(u)}`, payKeyboard());
+  await send(chatId, "🔊 အသံ ပို့နေပါတယ်…", menuKeyboard());
+  try {
+    const chunks = ttsChunks(d.introJp);
+    for (let i = 0; i < chunks.length; i++) {
+      const buf = await ttsMp3(chunks[i]);
+      await sendAudio(chatId, buf, i === 0 ? `🇯🇵 ${u.level.toUpperCase()} Day ${d.day} — ${d.title}` : undefined);
+    }
+  } catch (e) {
+    console.error("voice error:", e.message);
+    await send(chatId, "😅 အသံ ပို့လို့ မရဘူး — Google အသံ ဝန်ဆောင်မှု ခဏ မရလို့ပါ။ နောက်မှ ထပ်စမ်းကြည့်ပါ။ စာတော့ အပေါ်မှာ ဖတ်လို့ရပါတယ်။", menuKeyboard());
+  }
+}
 const menuKeyboard = () => ({
   reply_markup: {
     inline_keyboard: [
       [{ text: "📅 ဒီနေ့ သင်ခန်းစာ", callback_data: "today" }, { text: "❓ Quiz ဖြေမယ်", callback_data: "quiz" }],
       [{ text: "📝 Mock Test", callback_data: "mock" }, { text: "🔤 Vocab အကျဉ်း", callback_data: "vocab" }],
       [{ text: "🔄 N5 ⇄ N4 ပြောင်းမယ်", callback_data: "switch" }, { text: "💎 Pro ဝယ်ရန်", callback_data: "pay" }],
+      [{ text: "🔊 အသံ နားထောင်", callback_data: "voice" }],
     ],
   },
 });
@@ -167,6 +225,7 @@ function startText() {
 • /pay — Pro ဝယ်ရန် (သက်တမ်း ရွေး → လွှဲ → screenshot ပို့)
 • /activate CODE — Activation Code ရိုက်ပြီး Pro ဖွင့်ရန်
 • /pro — Pro အခြေအနေ ကြည့်ရန်
+• /voice — ဒီနေ့ သင်ခန်းစာကို ဂျပန်အသံနဲ့ နားထောင်ရန်
 
 🆓 Free: N5 Day 1-7 + N5 Mock 1
 💎 Pro: N5 Day 8-125, N4 အကုန်, Mock Test အကုန်
@@ -234,6 +293,7 @@ async function handleMessage(msg) {
   }
   if (text === "/myid") return send(chatId, `သင့် Telegram ID: ${chatId}${isAdmin(chatId) ? " (ရောင်းသူ/admin ဖြစ်ပါတယ်)" : ""}`, menuKeyboard());
   if (text === "/pro") return send(chatId, proStatusText(u), menuKeyboard());
+  if (text === "/voice") return voiceForDay(chatId, u);
   if (text === "/pay") return send(chatId, "💎 Pro သက်တမ်း ရွေးပါ:", payKeyboard());
   if (text.startsWith("/activate")) {
     const code = (text.split(/\s+/)[1] || "").toUpperCase().trim();
@@ -325,6 +385,7 @@ async function handleCallback(q) {
   }
   if (data === "mock") return handleMessage({ chat: { id: chatId }, text: "/mock" });
   if (data === "vocab") return handleMessage({ chat: { id: chatId }, text: "/vocab" });
+  if (data === "voice") return voiceForDay(chatId, u);
   if (data === "prices" || data === "pay") return send(chatId, "💎 Pro သက်တမ်း ရွေးပါ:", payKeyboard());
   if (data.startsWith("pay:")) {
     const i = parseInt(data.split(":")[1], 10);
@@ -375,6 +436,7 @@ async function poll() {
   }
   setImmediate(poll);
 }
+if (process.argv.includes("--test-tts")) { (async () => { try { const buf = await ttsMp3("こんにちは、さくらです。"); console.log("OK: TTS bytes:", buf.length); } catch (e) { console.error("FAIL: TTS:", e.message); process.exitCode = 1; } process.exit(process.exitCode || 0); })(); }
 if (process.argv.includes("--self-test")) { selfTest(); process.exit(0); }
 
 // ---- tiny HTTP server (Render free tier) ----
@@ -424,6 +486,9 @@ function selfTest() {
   assert(canAccess(proU, "n5", 100) === true && canAccess(proU, "n4", 131) === true, "pro can access all days");
   assert(payChoiceText(1).includes(PAY_NUMBER) && payChoiceText(1).includes("၉,၉၀၀"), "pay text shows number + price");
   assert(pricesText().includes(PAY_NUMBER), "prices text shows payment number");
+  assert(ttsChunks("こんにちは。元気ですか。").length >= 1, "tts chunks split sentences");
+  assert(ttsChunks("あ".repeat(400)).length <= 3, "tts chunks capped at 3");
+  assert(ttsChunks("").length === 0, "tts chunks empty for empty text");
   const c = genCode(); assert(/^SAKURA-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(c), "code format SAKURA-XXXX-XXXX");
   codes[c] = { days: 30, label: "၁ လ", createdAt: Date.now(), usedBy: null };
   assert(codes[c] && !codes[c].usedBy, "code stored unused");
