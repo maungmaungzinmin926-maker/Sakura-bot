@@ -7,6 +7,7 @@
 // Voice/mic speaking practice is NOT in the bot — that stays in the web app.
 
 const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 
 const TOKEN = process.env.BOT_TOKEN || "";
@@ -255,6 +256,19 @@ async function poll() {
   setImmediate(poll);
 }
 if (process.argv.includes("--self-test")) { selfTest(); process.exit(0); }
+
+// ---- tiny HTTP server (Render free tier) ----
+// Render's free tier has no Background Worker, so the bot must run as a
+// Web Service — and a Web Service must listen on $PORT, or Render marks
+// the deploy unhealthy and kills it. The bot itself uses long polling
+// (no inbound Telegram traffic), so this server only answers health
+// checks / keep-alive pings; it serves no lesson content.
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Sakura-sensei bot is running 🌸\n");
+}).listen(PORT, () => console.log(`Health server listening on port ${PORT}`));
+
 console.log("Sakura-sensei bot စတင်နေပါပြီ 🌸 (Ctrl+C နဲ့ ရပ်ပါ)");
 poll();
 
