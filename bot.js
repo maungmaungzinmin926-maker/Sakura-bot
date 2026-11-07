@@ -1,4 +1,4 @@
-// Sakura-sensei Telegram bot — Japanese N5/N4 learning bot (v1.3: Pro unlock + Japanese voice via Google Translate TTS)
+// Sakura-sensei Telegram bot — Japanese N5/N4 learning bot (v1.4: Pro unlock + Japanese voice via Google Translate TTS + web app link + new discount prices, no Lifetime)
 // No dependencies: Node 18+ only (uses global fetch).
 // Usage:  BOT_TOKEN=<token from @BotFather> node bot.js
 // The token is NEVER stored in this file — pass it as an environment variable.
@@ -22,16 +22,17 @@ if (!TOKEN && !process.argv.includes("--self-test") && !process.argv.includes("-
 
 const API = `https://api.telegram.org/bot${TOKEN}`;
 const PRICES = [
-  ["၁ ပတ်", "၂,၃၀၀ ကျပ်"], ["၁ လ", "၉,၉၀၀ ကျပ်"], ["၂ လ", "၁၉,၈၀၀ ကျပ်"],
-  ["၃ လ", "၂၉,၇၀၀ ကျပ်"], ["၆ လ", "၅၉,၄၀၀ ကျပ်"], ["၁ နှစ်", "၁၁၈,၈၀၀ ကျပ်"],
-  ["၂ နှစ်", "၂၃၇,၆၀၀ ကျပ်"], ["၃ နှစ်", "၃၅၆,၄၀၀ ကျပ်"], ["Lifetime", "၅၀၀,၀၀၀ ကျပ်"],
+  ["၁ ပတ်", "၂,၃၀၀ ကျပ်"], ["၁ လ", "၉,၉၀၀ ကျပ်"], ["၂ လ", "၁၈,၈၀၀ ကျပ်"],
+  ["၃ လ", "၂၆,၇၀၀ ကျပ်"], ["၆ လ", "၅၀,၅၀၀ ကျပ်"], ["၁ နှစ်", "၉၅,၀၀၀ ကျပ်"],
+  ["၂ နှစ်", "၁၇၈,၂၀၀ ကျပ်"], ["၃ နှစ်", "၂၄၉,၅၀၀ ကျပ်"],
 ];
-// Pro durations in days, matching PRICES order. Lifetime = 100 years.
+// Pro durations in days, matching PRICES order.
 const DURATIONS = [
   { label: "၁ ပတ်", days: 7 }, { label: "၁ လ", days: 30 }, { label: "၂ လ", days: 60 },
   { label: "၃ လ", days: 90 }, { label: "၆ လ", days: 180 }, { label: "၁ နှစ်", days: 365 },
-  { label: "၂ နှစ်", days: 730 }, { label: "၃ နှစ်", days: 1095 }, { label: "Lifetime", days: 36500 },
+  { label: "၂ နှစ်", days: 730 }, { label: "၃ နှစ်", days: 1095 },
 ];
+const APP_URL = "https://muse.ai/s/japanese-speaking-practice-no-login-jxs64xl03xfmxi1/VWsRo3WeSYLsGIT2XbWxcQxGITXxqEM6UV5jjioH_3Y"; // web app (no-login link version) — opens in the phone browser
 const PAY_NUMBER = "09750632532"; // KBZPay / Wave Money / AyaPay — seller's number (same as app Pro tab)
 const FREE_N5_DAYS = 7; // Free: N5 Day 1-7 + N5 Mock 1 only. Everything else is Pro.
 const SELLER_ID = process.env.SELLER_ID ? Number(process.env.SELLER_ID) : null;
@@ -183,6 +184,7 @@ const menuKeyboard = () => ({
       [{ text: "📝 Mock Test", callback_data: "mock" }, { text: "🔤 Vocab အကျဉ်း", callback_data: "vocab" }],
       [{ text: "🔄 N5 ⇄ N4 ပြောင်းမယ်", callback_data: "switch" }, { text: "💎 Pro ဝယ်ရန်", callback_data: "pay" }],
       [{ text: "🔊 အသံ နားထောင်", callback_data: "voice" }],
+      [{ text: "🌐 App ဖွင့်ရန် (web)", url: APP_URL }],
     ],
   },
 });
@@ -226,6 +228,7 @@ function startText() {
 • /activate CODE — Activation Code ရိုက်ပြီး Pro ဖွင့်ရန်
 • /pro — Pro အခြေအနေ ကြည့်ရန်
 • /voice — ဒီနေ့ သင်ခန်းစာကို ဂျပန်အသံနဲ့ နားထောင်ရန်
+• /app — Web App (link version) ဖွင့်ရန်
 
 🆓 Free: N5 Day 1-7 + N5 Mock 1
 💎 Pro: N5 Day 8-125, N4 အကုန်, Mock Test အကုန်
@@ -294,6 +297,7 @@ async function handleMessage(msg) {
   if (text === "/myid") return send(chatId, `သင့် Telegram ID: ${chatId}${isAdmin(chatId) ? " (ရောင်းသူ/admin ဖြစ်ပါတယ်)" : ""}`, menuKeyboard());
   if (text === "/pro") return send(chatId, proStatusText(u), menuKeyboard());
   if (text === "/voice") return voiceForDay(chatId, u);
+  if (text === "/app") return send(chatId, `🌐 Web App ဖွင့်ရန်:\n${APP_URL}\n\nဖုန်း browser မှာ ဖွင့်ပြီး Home screen မှာ ထည့်ထားရင် app လိုပဲ နှိပ်ဖွင့်လို့ရပါတယ်။`, menuKeyboard());
   if (text === "/pay") return send(chatId, "💎 Pro သက်တမ်း ရွေးပါ:", payKeyboard());
   if (text.startsWith("/activate")) {
     const code = (text.split(/\s+/)[1] || "").toUpperCase().trim();
@@ -303,12 +307,12 @@ async function handleMessage(msg) {
     if (c.usedBy) return send(chatId, "❌ ဒီ Code က သုံးပြီးသားပါ။", menuKeyboard());
     c.usedBy = chatId; c.usedAt = Date.now(); saveCodes();
     u.proUntil = Date.now() + c.days * 86400000; saveProgress();
-    return send(chatId, `🎉 Pro ပွင့်သွားပါပြီ! သက်တမ်း ${c.days >= 36500 ? "Lifetime" : c.days + " ရက်"} — ${fmtDate(u.proUntil)} အထိ သုံးလို့ရပါတယ်။`, menuKeyboard());
+    return send(chatId, `🎉 Pro ပွင့်သွားပါပြီ! သက်တမ်း ${c.days} ရက် — ${fmtDate(u.proUntil)} အထိ သုံးလို့ရပါတယ်။`, menuKeyboard());
   }
   if (text.startsWith("/gencode")) {
     if (!isAdmin(chatId)) return send(chatId, "❌ Code ထုတ်တာက ရောင်းသူ (admin) ပဲ လုပ်လို့ရပါတယ်။", menuKeyboard());
     const arg = (text.split(/\s+/)[1] || "1m").toLowerCase();
-    const keys = ["1w", "1m", "2m", "3m", "6m", "1y", "2y", "3y", "lifetime"];
+    const keys = ["1w", "1m", "2m", "3m", "6m", "1y", "2y", "3y"];
     const ki = keys.indexOf(arg);
     const dur = (ki >= 0 ? DURATIONS[ki] : null) || DURATIONS.find((d) => d.label === arg) || DURATIONS.find((d) => String(d.days) === arg) || DURATIONS[1];
     const code = genCode();
@@ -485,6 +489,10 @@ function selfTest() {
   const proU = { level: "n5", day: 100, done: [], best: {}, proUntil: Date.now() + 86400000 };
   assert(canAccess(proU, "n5", 100) === true && canAccess(proU, "n4", 131) === true, "pro can access all days");
   assert(payChoiceText(1).includes(PAY_NUMBER) && payChoiceText(1).includes("၉,၉၀၀"), "pay text shows number + price");
+  assert(PRICES.length === 8, `prices count = ${PRICES.length} (no Lifetime)`);
+  assert(!PRICES.some(([d]) => d === "Lifetime") && !pricesText().includes("Lifetime"), "no Lifetime in prices");
+  assert(pricesText().includes("၁၈,၈၀၀") && pricesText().includes("၂၄၉,၅၀၀"), "new discount prices listed");
+  assert(startText().includes("/app") && APP_URL.startsWith("https://muse.ai/s/"), "app link in /start + APP_URL");
   assert(pricesText().includes(PAY_NUMBER), "prices text shows payment number");
   assert(ttsChunks("こんにちは。元気ですか。").length >= 1, "tts chunks split sentences");
   assert(ttsChunks("あ".repeat(400)).length <= 3, "tts chunks capped at 3");
